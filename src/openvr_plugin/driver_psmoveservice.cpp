@@ -1139,6 +1139,7 @@ void CServerDriver_PSMoveService::LaunchPSMoveMonitor()
 CPSMoveTrackedDeviceLatest::CPSMoveTrackedDeviceLatest()
     : m_ulPropertyContainer(vr::k_ulInvalidPropertyContainer)
     , m_unSteamVRTrackedDeviceId(vr::k_unTrackedDeviceIndexInvalid)
+	, m_posAlignmentOffsetMeters(*k_psm_float_vector3_zero)
 {
     memset(&m_Pose, 0, sizeof(m_Pose));
     m_Pose.result = vr::TrackingResult_Uninitialized;
@@ -1160,6 +1161,12 @@ CPSMoveTrackedDeviceLatest::CPSMoveTrackedDeviceLatest()
 	m_bIsLastHMDPoseValid= false;
 	m_hmdResultCallback = nullptr;
 	m_hmdResultUserData = nullptr;
+
+	// Load config from steamvr.vrsettings
+	vr::IVRSettings *pSettings = vr::VRSettings();
+	m_posAlignmentOffsetMeters.x = LoadFloat(pSettings, "psmove_settings", "psmove_alignment_offset_x", 0.f);
+	m_posAlignmentOffsetMeters.y = LoadFloat(pSettings, "psmove_settings", "psmove_alignment_offset_y", 0.f);
+	m_posAlignmentOffsetMeters.z = LoadFloat(pSettings, "psmove_settings", "psmove_alignment_offset_z", 0.f);
 }
 
 CPSMoveTrackedDeviceLatest::~CPSMoveTrackedDeviceLatest()
@@ -1254,7 +1261,7 @@ void CPSMoveTrackedDeviceLatest::DebugRequest(
 
 		if (m_hmdResultCallback != nullptr)
 		{
-			m_hmdResultCallback(m_lastHMDPoseInMeters, m_hmdResultUserData);
+			m_hmdResultCallback(m_lastHMDPoseInMeters, m_posAlignmentOffsetMeters, m_hmdResultUserData);
 			m_hmdResultCallback = nullptr;
 			m_hmdResultUserData = nullptr;
 		}
@@ -1293,7 +1300,7 @@ void CPSMoveTrackedDeviceLatest::RequestLatestHMDPose(
 			// Give the callback the cached pose immediately
 			if (callback != nullptr)
 			{
-				callback(m_lastHMDPoseInMeters, userdata);
+				callback(m_lastHMDPoseInMeters, m_posAlignmentOffsetMeters, userdata);
 			}
 		}
 		else
@@ -1503,7 +1510,7 @@ CPSMoveControllerLatest::CPSMoveControllerLatest(
 			m_fControllerMetersInFrontOfHmdAtCalibration= 
 				LoadFloat(pSettings, "psmove", "m_fControllerMetersInFrontOfHmdAtCallibration", 0.06f);
 			m_bUseControllerOrientationInHMDAlignment= LoadBool(pSettings, "psmove_settings", "use_orientation_in_alignment", true);
-
+			
 			m_thumbstickDeadzone = 
 				fminf(fmaxf(LoadFloat(pSettings, "psnavi_settings", "thumbstick_deadzone_radius", k_defaultThumbstickDeadZoneRadius), 0.f), 0.99f);
 			m_bThumbstickTouchAsPress= LoadBool(pSettings, "psnavi_settings", "thumbstick_touch_as_press", true);
@@ -1739,6 +1746,23 @@ float CPSMoveControllerLatest::LoadFloat(
 		fResult= fDefaultValue;
 	}
 	
+	return fResult;
+}
+
+float CPSMoveTrackedDeviceLatest::LoadFloat(
+	vr::IVRSettings *pSettings,
+	const char *pchSection,
+	const char *pchSettingsKey,
+	const float fDefaultValue)
+{
+	vr::EVRSettingsError eError;
+	float fResult = pSettings->GetFloat(pchSection, pchSettingsKey, &eError);
+
+	if (eError != vr::VRSettingsError_None)
+	{
+		fResult = fDefaultValue;
+	}
+
 	return fResult;
 }
 
@@ -2483,7 +2507,8 @@ void CPSMoveControllerLatest::StartRealignHMDTrackingSpace()
 }
 
 void CPSMoveControllerLatest::FinishRealignHMDTrackingSpace(
-	const PSMPosef &hmd_pose_raw_meters, 
+	const PSMPosef &hmd_pose_raw_meters,
+	const PSMVector3f &hmd_pos_offset_meters,
 	void *userdata)
 {
 
@@ -2494,6 +2519,12 @@ void CPSMoveControllerLatest::FinishRealignHMDTrackingSpace(
 	#endif
 
 	PSMPosef hmd_pose_meters = hmd_pose_raw_meters;
+
+	// Add offsets
+	hmd_pose_meters.Position.x += hmd_pos_offset_meters.x;
+	hmd_pose_meters.Position.y += hmd_pos_offset_meters.y;
+	hmd_pose_meters.Position.z += hmd_pos_offset_meters.z;
+
 	DriverLog("hmd_pose_meters(raw): %s \n", PSMPosefToString(hmd_pose_meters).c_str());
 
 	// Make the HMD orientation only contain a yaw
@@ -2555,8 +2586,8 @@ void CPSMoveControllerLatest::FinishRealignHMDTrackingSpace(
 	DriverLog("controller_pose_meters(raw): %s \n", PSMPosefToString(controller_pose_meters).c_str());
 
 	// PSMove Position is in cm, but OpenVR stores position in meters
-	controller_pose_meters.Position= PSM_Vector3fScale(&controller_pose_meters.Position, k_fScalePSMoveAPIToMeters);
-
+	 controller_pose_meters.Position= PSM_Vector3fScale(&controller_pose_meters.Position, k_fScalePSMoveAPIToMeters);
+	
 	if (pThis->m_PSMControllerType == PSMControllerType::PSMController_Move)
 	{
 		if (pThis->m_bUseControllerOrientationInHMDAlignment)

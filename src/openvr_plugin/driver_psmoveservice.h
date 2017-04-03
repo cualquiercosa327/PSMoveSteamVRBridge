@@ -121,7 +121,7 @@ public:
     virtual void RefreshWorldFromDriverPose();
     virtual const char *GetSteamVRIdentifier() const;
 
-	typedef void(*t_hmd_request_callback)(const PSMPosef &hmd_pose_meters, void *userdata);
+	typedef void(*t_hmd_request_callback)(const PSMPosef &hmd_pose_meters, const PSMVector3f &hmd_pos_offset_meters, void *userdata);
 	void RequestLatestHMDPose(float maxPoseAgeMilliseconds = 0.f, t_hmd_request_callback callback = nullptr, void *userdata = nullptr);
 
 protected:
@@ -145,6 +145,15 @@ protected:
 
 	t_hmd_request_callback m_hmdResultCallback;
 	void *m_hmdResultUserData;
+
+private:
+	float LoadFloat(vr::IVRSettings *pSettings, const char *pchSection, const char *pchSettingsKey, const float fDefaultValue);
+
+	// offset virtual space alignment meters
+	float m_fAlignmentOffsetXMeters;
+	float m_fAlignmentOffsetYMeters;
+	float m_fAlignmentOffsetZMeters;
+	PSMVector3f m_posAlignmentOffsetMeters;
 };
 
 class CPSMoveControllerLatest : public CPSMoveTrackedDeviceLatest, public vr::IVRControllerComponent
@@ -236,7 +245,7 @@ private:
 
     void SendButtonUpdates( ButtonUpdate ButtonEvent, uint64_t ulMask );
 	void StartRealignHMDTrackingSpace();
-	static void FinishRealignHMDTrackingSpace(const PSMPosef &hmd_pose_meters, void *userdata);
+	static void FinishRealignHMDTrackingSpace(const PSMPosef &hmd_pose_meters, const PSMVector3f &hmd_pos_offset_meters, void *userdata);
     void UpdateControllerState();
 	void UpdateControllerStateFromPsMoveButtonState(ePSControllerType controllerType, ePSButtonID buttonId, PSMButtonState buttonState, vr::VRControllerState_t* pControllerStateToUpdate);
 	void GetMetersPosInRotSpace(const PSMQuatf *rotation, PSMVector3f* outPosition);
