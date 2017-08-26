@@ -1795,6 +1795,7 @@ CPSMoveControllerLatest::CPSMoveControllerLatest(
 	, m_bTouchpadWasActive(false)
 	, m_bUseSpatialOffsetAfterTouchpadPressAsTouchpadAxis(false)
 	, m_touchpadDirectionsUsed(false)
+	, m_btouchpadDirectionsAsPress(true)
 	, m_fControllerMetersInFrontOfHmdAtCalibration(0.f)
 	, m_posMetersAtTouchpadPressTime(*k_psm_float_vector3_zero)
 	, m_driverSpaceRotationAtTouchpadPressTime(*k_psm_quaternion_identity)
@@ -1875,6 +1876,7 @@ CPSMoveControllerLatest::CPSMoveControllerLatest(
 			// Touch pad settings
 			m_bDelayAfterTouchpadPress = 
 				LoadBool(pSettings, "psmove_touchpad", "delay_after_touchpad_press", m_bDelayAfterTouchpadPress);
+			m_btouchpadDirectionsAsPress = LoadBool(pSettings, "psmove_touchpad", "touchpad_directions_as_press", true);
 			m_bUseSpatialOffsetAfterTouchpadPressAsTouchpadAxis= 
 				LoadBool(pSettings, "psmove", "use_spatial_offset_after_touchpad_press_as_touchpad_axis", false);
 			m_fMetersPerTouchpadAxisUnits= 
@@ -3036,53 +3038,77 @@ void CPSMoveControllerLatest::UpdateControllerStateFromPsMoveButtonState(
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].x = -1.0f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_Right)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].x = 1.0f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_Up)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].y = 1.0f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_Down)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].y = -1.0f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_UpLeft)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].x = -0.707f;
 				pControllerStateToUpdate->rAxis[0].y = 0.707f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_UpRight)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].x = 0.707f;
 				pControllerStateToUpdate->rAxis[0].y = 0.707f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_DownLeft)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].x = -0.707f;
 				pControllerStateToUpdate->rAxis[0].y = -0.707f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 			else if (psButtonIDToVrTouchpadDirection[controllerType][buttonId] == k_EVRTouchpadDirection_DownRight)
 			{
 				m_touchpadDirectionsUsed = true;
 				pControllerStateToUpdate->rAxis[0].x = 0.707f;
 				pControllerStateToUpdate->rAxis[0].y = -0.707f;
-				pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				if (m_btouchpadDirectionsAsPress)
+					pControllerStateToUpdate->ulButtonPressed |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
+				else
+					pControllerStateToUpdate->ulButtonTouched |= vr::ButtonMaskFromId(vr::k_EButton_SteamVR_Touchpad);
 			}
 		}
 	}
