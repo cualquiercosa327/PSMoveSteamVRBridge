@@ -1370,6 +1370,23 @@ void CServerDriver_PSMoveService::SetHMDTrackingSpace(
     }
 }
 
+void CServerDriver_PSMoveService::SetHMDTrackingYaw(
+    const PSMQuatf &origin_orientation)
+{
+	DriverLog("Begin CServerDriver_PSMoveService::SetHMDTrackingSpace()\n");
+
+    m_worldFromDriverPose.Orientation = origin_orientation;
+
+    // Tell all the devices that the relationship between the psmove and the OpenVR
+    // tracking spaces changed
+    for (auto it = m_vecTrackedDevices.begin(); it != m_vecTrackedDevices.end(); ++it)
+    {
+        CPSMoveTrackedDeviceLatest *pDevice = *it;
+
+        pDevice->RefreshWorldFromDriverPose();
+    }
+}
+
 static void GenerateControllerSteamVRIdentifier( char *p, int psize, int controller )
 {
     snprintf(p, psize, "psmove_controller%d", controller);
@@ -1786,6 +1803,8 @@ CPSMoveControllerLatest::CPSMoveControllerLatest(
 	, m_bResetPoseRequestSent(false)
 	, m_resetAlignButtonPressTime()
 	, m_bResetAlignRequestSent(false)
+	, m_resetAlignYawButtonPressTime()
+	, m_bResetAlignYawRequestSent(false)
 	, m_bUsePSNaviDPadRecenter(false)
 	, m_bUsePSNaviDPadRealign(false)
 	, m_fVirtuallExtendControllersZMeters(0.0f)
@@ -1799,6 +1818,7 @@ CPSMoveControllerLatest::CPSMoveControllerLatest(
 	, m_posMetersAtTouchpadPressTime(*k_psm_float_vector3_zero)
 	, m_driverSpaceRotationAtTouchpadPressTime(*k_psm_quaternion_identity)
     , m_bDisableHMDAlignmentGesture(false)
+    , m_bEnableHMDYawAlignmentGesture(false)
 	, m_bUseControllerOrientationInHMDAlignment(false)
 	, m_steamVRTriggerAxisIndex(1)
 	, m_steamVRNaviTriggerAxisIndex(1)
@@ -1916,6 +1936,7 @@ CPSMoveControllerLatest::CPSMoveControllerLatest(
 			m_fControllerMetersInFrontOfHmdAtCalibration= 
 				LoadFloat(pSettings, "psmove", "m_fControllerMetersInFrontOfHmdAtCallibration", 0.06f);
             m_bDisableHMDAlignmentGesture= LoadBool(pSettings, "psmove_settings", "disable_alignment_gesture", false);
+			m_bEnableHMDYawAlignmentGesture = LoadBool(pSettings, "psmove_settings", "enable_yaw_alignment_gesture", false);
 			m_bUseControllerOrientationInHMDAlignment= LoadBool(pSettings, "psmove_settings", "use_orientation_in_alignment", true);
 
 			m_thumbstickDeadzone = 
@@ -2479,50 +2500,52 @@ void CPSMoveControllerLatest::UpdateControllerState()
 
 			// See if the recenter button has been held for the requisite amount of time
 			bool bRecenterRequestTriggered = false;
+			bool bRealignHMDYawRequestTriggered = false;
+			PSMButtonState resetPoseButtonState = clientView.SelectButton;
+			PSMButtonState resetAlignButtonState;
+			PSMButtonState resetAlignYawButtonState = clientView.StartButton;
+
+			// Use PSNavi D-pad up/down if they are free
+			if (bHasChildNavi)
 			{
-				PSMButtonState resetPoseButtonState = clientView.SelectButton;
-				PSMButtonState resetAlignButtonState;
-
-				// Use PSNavi D-pad up/down if they are free
-				if (bHasChildNavi)
+				if (m_bUsePSNaviDPadRealign)
 				{
-					if (m_bUsePSNaviDPadRealign)
-					{
-						resetAlignButtonState = m_PSMChildControllerView->ControllerState.PSNaviState.DPadUpButton;
+					resetAlignButtonState = m_PSMChildControllerView->ControllerState.PSNaviState.DPadUpButton;
 
-						switch (resetAlignButtonState)
+					switch (resetAlignButtonState)
+					{
+					case PSMButtonState_PRESSED:
+					{
+						m_resetAlignButtonPressTime = std::chrono::high_resolution_clock::now();
+					} break;
+					case PSMButtonState_DOWN:
+					{
+						if (!m_bResetAlignRequestSent)
 						{
-						case PSMButtonState_PRESSED:
-							{
-								m_resetAlignButtonPressTime = std::chrono::high_resolution_clock::now();
-							} break;
-						case PSMButtonState_DOWN:
-							{
-								if (!m_bResetAlignRequestSent)
-								{
-									const float k_hold_duration_milli = 1000.f;
-									std::chrono::time_point<std::chrono::high_resolution_clock> now = std::chrono::high_resolution_clock::now();
-									std::chrono::duration<float, std::milli> pressDurationMilli = now - m_resetAlignButtonPressTime;
+							const float k_hold_duration_milli = 1000.f;
+							std::chrono::time_point<std::chrono::high_resolution_clock> now = std::chrono::high_resolution_clock::now();
+							std::chrono::duration<float, std::milli> pressDurationMilli = now - m_resetAlignButtonPressTime;
 
-									if (pressDurationMilli.count() >= k_hold_duration_milli)
-									{
-										bStartRealignHMDTriggered = true;
-									}
-								}
-							} break;
-						case PSMButtonState_RELEASED:
+							if (pressDurationMilli.count() >= k_hold_duration_milli)
 							{
-								m_bResetAlignRequestSent = false;
-							} break;
+								bStartRealignHMDTriggered = true;
+							}
 						}
-					}
-					
-					if (m_bUsePSNaviDPadRecenter)
+					} break;
+					case PSMButtonState_RELEASED:
 					{
-						resetPoseButtonState = m_PSMChildControllerView->ControllerState.PSNaviState.DPadDownButton;
+						m_bResetAlignRequestSent = false;
+					} break;
 					}
 				}
 
+				if (m_bUsePSNaviDPadRecenter)
+				{
+					resetPoseButtonState = m_PSMChildControllerView->ControllerState.PSNaviState.DPadDownButton;
+				}
+			}
+			if (!bStartRealignHMDTriggered)
+			{
 				switch (resetPoseButtonState)
 				{
 				case PSMButtonState_PRESSED:
@@ -2548,6 +2571,32 @@ void CPSMoveControllerLatest::UpdateControllerState()
 						m_bResetPoseRequestSent = false;
 					} break;
 				}
+				
+				switch (resetAlignYawButtonState)
+				{
+				case PSMButtonState_PRESSED:
+				{
+					m_resetAlignYawButtonPressTime = std::chrono::high_resolution_clock::now();
+				} break;
+				case PSMButtonState_DOWN:
+				{
+					if (!m_bResetAlignYawRequestSent)
+					{
+						const float k_hold_duration_milli = 250.f;
+						std::chrono::time_point<std::chrono::high_resolution_clock> now = std::chrono::high_resolution_clock::now();
+						std::chrono::duration<float, std::milli> pressDurationMilli = now - m_resetPoseButtonPressTime;
+
+						if (pressDurationMilli.count() >= k_hold_duration_milli)
+						{
+							bRealignHMDYawRequestTriggered = true;
+						}
+					}
+				} break;
+				case PSMButtonState_RELEASED:
+				{
+					m_bResetAlignYawRequestSent = false;
+				} break;
+				}
 			}
 
             // If START was just pressed while and SELECT was held or vice versa,
@@ -2566,6 +2615,13 @@ void CPSMoveControllerLatest::UpdateControllerState()
 				RealignHMDTrackingSpace();
 				m_bResetAlignRequestSent = true;
             }
+			else if (bRealignHMDYawRequestTriggered)
+			{
+				DriverLog("CPSMoveControllerLatest::UpdateControllerState(): Calling StartRealignHMDTrackingSpaceYaw() in response to controller button press.\n");
+
+				RealignHMDTrackingYaw();
+				m_bResetAlignYawRequestSent = true;
+			}
 			else if (bRecenterRequestTriggered)
 			{
 				DriverLog("CPSMoveControllerLatest::UpdateControllerState(): Calling ClientPSMoveAPI::reset_orientation() in response to controller button press.\n");
@@ -3289,6 +3345,118 @@ void CPSMoveControllerLatest::RealignHMDTrackingSpace()
 	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingSpace() - test_composed_controller_world_space: %s \n", PSMPosefToString(test_composed_controller_world_space).c_str());
 
 	g_ServerTrackedDeviceProvider.SetHMDTrackingSpace(driver_pose_to_world_pose);
+}
+
+void CPSMoveControllerLatest::RealignHMDTrackingYaw()
+{
+    if (!m_bEnableHMDYawAlignmentGesture)
+    {
+        DriverLog( "Ignoring RealignHMDTrackingYaw request. Disabled.\n" );
+        return;
+    }
+
+	DriverLog( "Begin CPSMoveControllerLatest::RealignHMDTrackingYaw()\n" );
+
+    vr::TrackedDeviceIndex_t hmd_device_index= vr::k_unTrackedDeviceIndexInvalid;
+    if (GetHMDDeviceIndex(&hmd_device_index))
+    {
+        DriverLog( "CPSMoveControllerLatest::RealignHMDTrackingYaw() - HMD Device Index= %u\n", hmd_device_index);
+    }
+    else
+    {
+        DriverLog( "CPSMoveControllerLatest::RealignHMDTrackingYaw() - Failed to get HMD Device Index\n" );
+        return;
+    }
+
+    PSMPosef hmd_pose_meters;
+    if (GetTrackedDevicePose(hmd_device_index, &hmd_pose_meters))
+    {
+        DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - hmd_pose_meters: %s \n", PSMPosefToString(hmd_pose_meters).c_str());
+    }
+    else
+    {
+        DriverLog( "CPSMoveControllerLatest::RealignHMDTrackingYaw() - Failed to get HMD Pose\n" );
+        return;
+    }
+
+	// Make the HMD orientation only contain a yaw
+	hmd_pose_meters.Orientation = ExtractHMDYawQuaternion(hmd_pose_meters.Orientation);
+	DriverLog("hmd_pose_meters(yaw-only): %s \n", PSMPosefToString(hmd_pose_meters).c_str());
+
+	// We have the transform of the HMD in world space. 
+	// However the HMD and the controller aren't quite aligned depending on the controller type:
+	PSMQuatf controllerOrientationInHmdSpaceQuat= *k_psm_quaternion_identity;
+	PSMVector3f controllerLocalOffsetFromHmdPosition= *k_psm_float_vector3_zero;
+	if (m_PSMControllerType == PSMControllerType::PSMController_Move)
+	{
+		// Rotation) The controller's local -Z axis (from the center to the glowing ball) is currently pointed 
+		//    in the direction of the HMD's local +Y axis, 
+		// Translation) The controller's position is a few inches ahead of the HMD's on the HMD's local -Z axis. 
+		PSMVector3f eulerPitch= {(float)M_PI_2, 0.0f, 0.0f};
+		controllerOrientationInHmdSpaceQuat = PSM_QuatfCreateFromAngles(&eulerPitch);
+		controllerLocalOffsetFromHmdPosition = {0.0f, 0.0f, -1.0f * m_fControllerMetersInFrontOfHmdAtCalibration};
+	}
+	else if (m_PSMControllerType == PSMControllerType::PSMController_DualShock4 || 
+            m_PSMControllerType == PSMControllerType::PSMController_Virtual)
+	{
+		// Translation) The controller's position is a few inches ahead of the HMD's on the HMD's local -Z axis. 
+		controllerLocalOffsetFromHmdPosition = {0.0f, 0.0f, -1.0f * m_fControllerMetersInFrontOfHmdAtCalibration};
+	}
+
+	// Transform the HMD's world space transform to where we expect the controller's world space transform to be.
+	PSMPosef controllerPoseRelativeToHMD =
+		PSM_PosefCreate(&controllerLocalOffsetFromHmdPosition, &controllerOrientationInHmdSpaceQuat);
+
+	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - controllerPoseRelativeToHMD: %s \n", PSMPosefToString(controllerPoseRelativeToHMD).c_str());
+
+	// Compute the expected controller pose in HMD tracking space (i.e. "World Space")
+	PSMPosef controller_world_space_pose = PSM_PosefConcat(&controllerPoseRelativeToHMD, &hmd_pose_meters);
+	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - controller_world_space_pose: %s \n", PSMPosefToString(controller_world_space_pose).c_str());
+
+    /*
+        We now have the transform of the controller in world space -- controller_world_space_pose
+
+        We also have the transform of the controller in driver space -- psmove_pose_meters
+
+        We need the transform that goes from driver space to world space -- driver_pose_to_world_pose
+        psmove_pose_meters * driver_pose_to_world_pose = controller_world_space_pose
+        psmove_pose_meters.inverse() * psmove_pose_meters * driver_pose_to_world_pose = psmove_pose_meters.inverse() * controller_world_space_pose
+        driver_pose_to_world_pose = psmove_pose_meters.inverse() * controller_world_space_pose
+    */
+
+	// Get the current pose from the controller view instead of using the driver's cached
+	// value because the user may have triggered a pose reset, in which case the driver's
+	// cached pose might not yet be up to date by the time this callback is triggered.
+	PSMPosef controller_pose_meters = *k_psm_pose_identity;
+    PSM_GetControllerPose(m_PSMControllerView->ControllerID, &controller_pose_meters);
+	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - controller_pose_meters(raw): %s \n", PSMPosefToString(controller_pose_meters).c_str());
+
+	// PSMove Position is in cm, but OpenVR stores position in meters
+	controller_pose_meters.Position= PSM_Vector3fScale(&controller_pose_meters.Position, k_fScalePSMoveAPIToMeters);
+
+	if (m_PSMControllerType == PSMControllerType::PSMController_Move)
+	{
+		// Extract only the yaw from the controller orientation (assume it's mostly held upright)
+		controller_pose_meters.Orientation = ExtractPSMoveYawQuaternion(controller_pose_meters.Orientation);
+		DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - controller_pose_meters(yaw-only): %s \n", PSMPosefToString(controller_pose_meters).c_str());
+	}
+	else if (m_PSMControllerType == PSMControllerType::PSMController_DualShock4 ||
+            m_PSMControllerType == PSMControllerType::PSMController_Virtual)
+	{
+		controller_pose_meters.Orientation = *k_psm_quaternion_identity;
+		DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - controller_pose_meters(no-rotation): %s \n", PSMPosefToString(controller_pose_meters).c_str());
+	}	
+
+	PSMPosef controller_pose_inv = PSM_PosefInverse(&controller_pose_meters);
+	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - controller_pose_inv: %s \n", PSMPosefToString(controller_pose_inv).c_str());
+
+	PSMPosef driver_pose_to_world_pose = PSM_PosefConcat(&controller_pose_inv, &controller_world_space_pose);
+	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - driver_pose_to_world_pose: %s \n", PSMPosefToString(driver_pose_to_world_pose).c_str());
+
+	PSMPosef test_composed_controller_world_space = PSM_PosefConcat(&controller_pose_meters, &driver_pose_to_world_pose);
+	DriverLog("CPSMoveControllerLatest::RealignHMDTrackingYaw() - test_composed_controller_world_space: %s \n", PSMPosefToString(test_composed_controller_world_space).c_str());
+
+	g_ServerTrackedDeviceProvider.SetHMDTrackingYaw(driver_pose_to_world_pose.Orientation);
 }
 
 void CPSMoveControllerLatest::UpdateTrackingState()

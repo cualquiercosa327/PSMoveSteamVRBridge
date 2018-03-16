@@ -61,6 +61,7 @@ public:
     void LaunchPSMoveMonitor();
 
 	void SetHMDTrackingSpace(const PSMPosef &origin_pose);
+	void SetHMDTrackingYaw(const PSMQuatf &origin_orientation);
     inline PSMPosef GetWorldFromDriverPose() const { return m_worldFromDriverPose; }
 
 private:
@@ -261,6 +262,7 @@ private:
 
     void SendButtonUpdates( ButtonUpdate ButtonEvent, uint64_t ulMask );
 	void RealignHMDTrackingSpace();
+	void RealignHMDTrackingYaw();
     void UpdateControllerState();
 	void UpdateControllerStateFromPsMoveButtonState(ePSControllerType controllerType, ePSButtonID buttonId, PSMButtonState buttonState, vr::VRControllerState_t* pControllerStateToUpdate);
 	void GetMetersPosInRotSpace(const PSMQuatf *rotation, PSMVector3f* outPosition);
@@ -320,6 +322,8 @@ private:
 	bool m_bResetPoseRequestSent;
 	std::chrono::time_point<std::chrono::high_resolution_clock> m_resetAlignButtonPressTime;
 	bool m_bResetAlignRequestSent;
+	std::chrono::time_point<std::chrono::high_resolution_clock> m_resetAlignYawButtonPressTime;
+	bool m_bResetAlignYawRequestSent;
 
 	bool m_bUsePSNaviDPadRecenter;
 	bool m_bUsePSNaviDPadRealign;
@@ -357,6 +361,9 @@ private:
 
 	// Flag used to completely disable the alignment gesture
 	bool m_bDisableHMDAlignmentGesture;
+
+	// Flag used to enable the yaw alignment gesture
+	bool m_bEnableHMDYawAlignmentGesture;
 
 	// Flag to tell if we should use the controller orientation as part of the controller alignment
 	bool m_bUseControllerOrientationInHMDAlignment;
